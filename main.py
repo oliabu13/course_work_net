@@ -1,117 +1,16 @@
-import requests
-import json
-import datetime
-from datetime import datetime
+from Photo import Photo
+from VK_API import VK_API
+from Yandex_API import Yandex_API
 
-class Photo:
-    name = ''
-
-    def __init__(self, date, likes, sizes):
-        self.date = date
-        self.likes = likes
-        self.sizes = sizes
-        self.size_type = sizes['type']
-        self.url = sizes['url']
-        self.maxsize = max(sizes['width'], sizes['height'])
-
-    def __repr__(self):
-        return f'date: {self.date}, likes: {self.likes}, size: {self.maxsize}, url: {self.url}'
-
-class VK_API:
-    base_url = "https://api.vk.com/method/"
-
-    def __init__(self):
-        self.token = ' '
-        self.version = '5.131'
-
-    @staticmethod
-    def find_largest(sizes):
-        ph_sizes = ['x', 'z', 'y', 'r', 'q', 'p', 'o', 'x', 'm', 's']
-        for photo in ph_sizes:
-            for size in sizes:
-                if size['type'] == photo:
-                    return size
-
-    def get_photos(self, id, quantity=5):
-        url = self.base_url + 'photos.get'
-        resp = requests.get(url, params={
-            'access_token': self.token,
-            'v': self.version,
-            'owner_id': id,
-            'album_id': 'profile',
-            'photo_sizes': 1,
-            'extended': 1
-        }).json().get('response').get('items')
-
-        return sorted([Photo(photo.get('date'),
-                             photo.get('likes')['count'],
-                             self.find_largest(photo.get('sizes'))) for photo in resp],
-                      key=lambda p: p.maxsize, reverse=True)[:quantity]
-
-
-class Yandex_API:
-
-    def __init__(self, token: str):
-        self.auth = f'OAuth {token}'
-
-    @staticmethod
-    def file_name(photos):
-        for photo in photos:
-            photo.name = str(photo.likes)
-            if [p.likes for p in photos].count(photo.likes) > 1:
-                photo.name += '_' + str(photo.date)
-            photo.name += '.jpg'
-
-    @staticmethod
-    def folder_name(new_folder, exist_folders):
-        if new_folder not in exist_folders:
-            return new_folder
-        n = 1
-        new_folder += '_' + str(n)
-        while new_folder in exist_folders:
-            new_folder = new_folder.replace('_' + str(n), '_' + str(n + 1))
-            n += 1
-        return new_folder
-
-    def get_folders(self):
-        return [p['name'] for p in (requests.get("https://cloud-api.yandex.net/v1/disk/resources",
-                                                 params={"path": '/'},
-                                                 headers={"Authorization": self.auth})
-                                    .json().get('_embedded').get('items')) if p['type'] == 'dir']
-
-    def create_folder(self, folder_name):
-        resp = requests.put("https://cloud-api.yandex.net/v1/disk/resources",
-                            params={"path": '/' + folder_name},
-                            headers={"Authorization": self.auth})
-        print(f'Имя папки: "{folder_name}":' + str(resp.status_code))
-        return resp.ok
-
-    def upload(self, id, photos):
-        upload_folder = self.folder_name(id, self.get_folders())
-        self.file_name(photos)
-        if self.create_folder(upload_folder):
-            log_result = []
-            for photo in photos:
-                response = requests.post("https://cloud-api.yandex.net/v1/disk/resources/upload",
-                                         params={"path": '/' + upload_folder + '/' + photo.name,
-                                                 "url": photo.url},
-                                         headers={"Authorization": self.auth})
-                if response.status_code == 202:
-                    print(f'Фото "{photo.name}" загружено')
-                    log_result.append({"file_name": photo.name, "size": photo.size_type})
-                else:
-                    print(f'Не получилось загрузить фото "{photo.name}": '
-                          f'{response.json().get("message")}. Статус кода: {response.status_code}')
-            with open(f'{id}_{datetime.now().strftime("%d_%m_%Y_%H_%M_%S")}_files.json', "w") as f:
-                json.dump(log_result, f, ensure_ascii=False, indent=2)
 
 def download_ph():
     ya_token = input('YandexDisk token:')
     id = input('VK user id:')
     quantity = input('Number of photos to upload: ')
     vk_api = VK_API()
-    ya_api: Yandex_API = Yandex_API(ya_token)
+    ya_api = Yandex_API(ya_token)
     ya_api.upload(id, vk_api.get_photos(id, int(quantity)))
+
 
 if __name__ == '__main__':
     download_ph()
